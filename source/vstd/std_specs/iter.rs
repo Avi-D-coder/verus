@@ -2,7 +2,7 @@ use super::super::prelude::*;
 use super::super::seq::{
     group_seq_lemmas, lemma_seq_empty, lemma_seq_subrange_index, lemma_seq_subrange_len,
 };
-use core::iter::{Chain, Enumerate, Filter, FromIterator, Iterator, Rev, Skip, Take, Zip};
+use core::iter::{Chain, Cloned, Enumerate, Filter, FromIterator, Iterator, Rev, Skip, Take, Zip};
 use verus as verus_;
 
 verus_! {
@@ -66,6 +66,12 @@ pub trait ExIterator {
     spec fn peek(&self, index: int) -> Option<Self::Item>;
 
     // Provided methods
+
+    #[verifier::impls_cannot_extend_spec]
+    fn cloned<'a, T: 'a>(self) -> (r: Cloned<Self>)
+        where Self: Sized + Iterator<Item = &'a T>, T: Clone,
+        ensures self.obeys_prophetic_iter_laws() ==> cloned_post::<T, _, _>(self, r),
+    ;
 
     fn enumerate(self) -> (r: Enumerate<Self>)
         where Self: Sized,
@@ -360,6 +366,33 @@ pub trait ExFromIterator<A>: Sized {
             Self::from_iter_ensures(into_iter_remaining(iter), s),
     ;
 }
+
+/********************************************************************************
+ * Definitions for `cloned()`
+ ********************************************************************************/
+
+#[verifier::external_body]
+#[verifier::external_type_specification]
+#[verifier::reject_recursive_types(I)]
+pub struct ExCloned<I>(Cloned<I>);
+
+pub uninterp spec fn cloned_post<T, I, R>(input: I, result: R) -> bool;
+
+pub broadcast axiom fn cloned_postcondition<'a, T: Clone + 'a, I: IteratorSpec<Item = &'a T>>(
+    input: I, result: Cloned<I>,
+)
+    where Cloned<I>: Iterator<Item = T>,
+    requires input.obeys_prophetic_iter_laws(), #[trigger] cloned_post::<T, _, _>(input, result),
+    ensures
+        IteratorSpec::obeys_prophetic_iter_laws(&result),
+        // A Clone implementation may not return. Only yielded values have a Clone postcondition.
+        IteratorSpec::remaining(&result).len() <= input.remaining().len(),
+        forall|k: int| #![auto] 0 <= k < IteratorSpec::remaining(&result).len() ==>
+            cloned(*input.remaining()[k], IteratorSpec::remaining(&result)[k]),
+        IteratorSpec::will_return_none(&result) ==> input.will_return_none()
+            && IteratorSpec::remaining(&result).len() == input.remaining().len(),
+        IteratorSpec::decrease(&result) is Some == input.decrease() is Some,
+;
 
 /********************************************************************************
  * Definitions for `chain()`
@@ -1041,6 +1074,7 @@ pub trait ExIterStep: Clone + PartialOrd + Sized {
  ********************************************************************************/
 
 pub broadcast group group_iter_axioms {
+    cloned_postcondition,
     enumerate_postcondition,
     chain_postcondition,
     rev_postcondition,

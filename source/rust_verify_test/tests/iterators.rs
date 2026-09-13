@@ -4,6 +4,71 @@ mod common;
 use common::*;
 
 test_verify_one_file! {
+    #[test] cloned_preserves_yielded_values verus_code! {
+        use vstd::prelude::*;
+        use vstd::std_specs::iter::IteratorSpec;
+
+        proof fn collect_law<T, I: Iterator<Item = T>, C: core::iter::FromIterator<T>>(
+            iter: I, result: C,
+        )
+            requires iter.obeys_prophetic_iter_laws(),
+                call_ensures(I::collect::<C>, (iter,), result),
+            ensures vstd::std_specs::iter::FromIteratorSpec::from_iter_ensures(iter.remaining(), result),
+        {}
+
+        fn test(values: &Vec<u64>) {
+            let source = values.iter();
+            let iter = source.cloned();
+            proof { vstd::std_specs::iter::cloned_postcondition(source, iter); }
+            assert(iter.obeys_prophetic_iter_laws());
+            assert(iter.remaining().len() <= source.remaining().len());
+            let copies: Vec<u64> = iter.collect();
+            proof { collect_law(iter, copies); }
+            assert(iter.will_return_none());
+            assert(copies@ == iter.remaining());
+            assert(iter.remaining().len() == values@.len());
+            assert(copies@ =~= values@);
+        }
+
+        fn empty() {
+            let values: Vec<u64> = vec![];
+            let source = values.iter();
+            let iter = source.cloned();
+            proof { vstd::std_specs::iter::cloned_postcondition(source, iter); }
+            let copies: Vec<u64> = iter.collect();
+            proof { collect_law(iter, copies); }
+            assert(copies@.len() == 0);
+        }
+    } => Ok(())
+}
+
+test_verify_one_file! {
+    #[test] cloned_cannot_change_value verus_code! {
+        use vstd::prelude::*;
+        use vstd::std_specs::iter::IteratorSpec;
+
+        proof fn collect_law<T, I: Iterator<Item = T>, C: core::iter::FromIterator<T>>(
+            iter: I, result: C,
+        )
+            requires iter.obeys_prophetic_iter_laws(),
+                call_ensures(I::collect::<C>, (iter,), result),
+            ensures vstd::std_specs::iter::FromIteratorSpec::from_iter_ensures(iter.remaining(), result),
+        {}
+
+        fn test() {
+            let values = vec![7u64];
+            let source = values.iter();
+            let iter = source.cloned();
+            proof { vstd::std_specs::iter::cloned_postcondition(source, iter); }
+            let copies: Vec<u64> = iter.collect();
+            proof { collect_law(iter, copies); }
+            assert(copies@ == seq![7u64]);
+            assert(copies@[0] == 8); // FAILS
+        }
+    } => Err(err) => assert_one_fails(err)
+}
+
+test_verify_one_file! {
     #[test] enumerate_indices_survive_next verus_code! {
         use vstd::prelude::*;
 
