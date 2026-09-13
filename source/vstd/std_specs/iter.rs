@@ -2,7 +2,7 @@ use super::super::prelude::*;
 use super::super::seq::{
     group_seq_lemmas, lemma_seq_empty, lemma_seq_subrange_index, lemma_seq_subrange_len,
 };
-use core::iter::{Filter, FromIterator, Iterator, Rev, Skip, Take, Zip};
+use core::iter::{Chain, Filter, FromIterator, Iterator, Rev, Skip, Take, Zip};
 use verus as verus_;
 
 verus_! {
@@ -66,6 +66,12 @@ pub trait ExIterator {
     spec fn peek(&self, index: int) -> Option<Self::Item>;
 
     // Provided methods
+
+    #[verifier::impls_cannot_extend_spec]
+    fn chain<U>(self, other: U) -> (r: Chain<Self, U::IntoIter>)
+        where Self: Sized, U: IntoIterator<Item = Self::Item>,
+        ensures chain_post(self, other, r),
+    ;
 
     // TODO: Once we can add when_used_as_spec to provided trait methods, this would be a simpler encoding:
     //#[verifier::when_used_as_spec(into_rev_spec)]
@@ -346,6 +352,47 @@ pub trait ExFromIterator<A>: Sized {
         ensures
             Self::from_iter_ensures(into_iter_remaining(iter), s),
     ;
+}
+
+/********************************************************************************
+ * Definitions for `chain()`
+ ********************************************************************************/
+
+#[verifier::external_body]
+#[verifier::external_type_specification]
+#[verifier::reject_recursive_types(A)]
+#[verifier::reject_recursive_types(B)]
+pub struct ExChain<A, B>(Chain<A, B>);
+
+// Constructor relation avoids a cyclic Iterator/IteratorSpec bound.
+pub uninterp spec fn chain_post<I, U, R>(left: I, right: U, result: R) -> bool;
+pub uninterp spec fn chain_right<A, B>(iter: Chain<A, B>) -> B;
+
+pub broadcast axiom fn chain_postcondition<I: IteratorSpec, U: IntoIterator<Item = I::Item>>(
+    left: I, right: U, result: Chain<I, U::IntoIter>,
+)
+    requires #[trigger] chain_post(left, right, result),
+    ensures
+        call_ensures(U::into_iter, (right,), chain_right(result)),
+        left.obeys_prophetic_iter_laws() && chain_right(result).obeys_prophetic_iter_laws() ==> {
+            &&& IteratorSpec::obeys_prophetic_iter_laws(&result)
+            // The second iterator is reached only if the first returns None.
+            &&& IteratorSpec::remaining(&result) == if left.will_return_none() {
+                left.remaining() + chain_right(result).remaining()
+            } else { left.remaining() }
+            &&& IteratorSpec::will_return_none(&result) == (left.will_return_none() && chain_right(result).will_return_none())
+            &&& IteratorSpec::decrease(&result) is Some == (left.decrease() is Some && chain_right(result).decrease() is Some)
+        },
+;
+
+impl<A: Iterator, B: Iterator<Item = A::Item>> IteratorSpecImpl for Chain<A, B> {
+    uninterp spec fn obeys_prophetic_iter_laws(&self) -> bool;
+    #[verifier::prophetic]
+    uninterp spec fn remaining(&self) -> Seq<A::Item>;
+    #[verifier::prophetic]
+    uninterp spec fn will_return_none(&self) -> bool;
+    uninterp spec fn decrease(&self) -> Option<nat>;
+    open spec fn peek(&self, index: int) -> Option<A::Item> { None }
 }
 
 /********************************************************************************
@@ -951,6 +998,7 @@ pub trait ExIterStep: Clone + PartialOrd + Sized {
  ********************************************************************************/
 
 pub broadcast group group_iter_axioms {
+    chain_postcondition,
     rev_postcondition,
     zip_postcondition,
     filter_postcondition,

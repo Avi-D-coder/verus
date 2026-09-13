@@ -4,6 +4,32 @@ mod common;
 use common::*;
 
 test_verify_one_file! {
+    #[test] chain_order_and_exhaustion verus_code! {
+        use vstd::prelude::*;
+        use vstd::std_specs::iter::IteratorSpec;
+
+        fn test() {
+            let left = vec![1u64];
+            let right = vec![2u64, 3];
+            let mut iter = left.into_iter().chain(right);
+            let first = iter.next();
+            assert(first == Some(1u64));
+            let rest: Vec<u64> = iter.collect();
+            assert(rest@ == seq![2u64, 3]);
+        }
+
+        fn empty() {
+            let left: Vec<u64> = vec![];
+            let right: Vec<u64> = vec![];
+            let mut iter = left.into_iter().chain(right);
+            let first = iter.next();
+            let second = iter.next();
+            assert(first == None && second == None);
+        }
+    } => Ok(())
+}
+
+test_verify_one_file! {
     #[test] mut_ref_forwarding verus_code! {
         use vstd::prelude::*;
         use vstd::std_specs::iter::IteratorSpec;
