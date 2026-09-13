@@ -2,7 +2,7 @@ use super::super::prelude::*;
 use super::super::seq::{
     group_seq_lemmas, lemma_seq_empty, lemma_seq_subrange_index, lemma_seq_subrange_len,
 };
-use core::iter::{Chain, Cloned, Enumerate, Filter, FromIterator, Iterator, Rev, Skip, Take, Zip};
+use core::iter::{Chain, Cloned, Copied, Enumerate, Filter, FromIterator, Iterator, Rev, Skip, Take, Zip};
 use verus as verus_;
 
 verus_! {
@@ -66,6 +66,12 @@ pub trait ExIterator {
     spec fn peek(&self, index: int) -> Option<Self::Item>;
 
     // Provided methods
+
+    #[verifier::impls_cannot_extend_spec]
+    fn copied<'a, T: 'a>(self) -> (r: Copied<Self>)
+        where Self: Sized + Iterator<Item = &'a T>, T: Copy,
+        ensures self.obeys_prophetic_iter_laws() ==> copied_post::<T, _, _>(self, r),
+    ;
 
     #[verifier::impls_cannot_extend_spec]
     fn cloned<'a, T: 'a>(self) -> (r: Cloned<Self>)
@@ -366,6 +372,30 @@ pub trait ExFromIterator<A>: Sized {
             Self::from_iter_ensures(into_iter_remaining(iter), s),
     ;
 }
+
+/********************************************************************************
+ * Definitions for `copied()`
+ ********************************************************************************/
+
+#[verifier::external_body]
+#[verifier::external_type_specification]
+#[verifier::reject_recursive_types(I)]
+pub struct ExCopied<I>(Copied<I>);
+
+pub uninterp spec fn copied_post<T, I, R>(input: I, result: R) -> bool;
+
+pub broadcast axiom fn copied_postcondition<'a, T: Copy + 'a, I: IteratorSpec<Item = &'a T>>(
+    input: I, result: Copied<I>,
+)
+    where Copied<I>: Iterator<Item = T>,
+    requires input.obeys_prophetic_iter_laws(), #[trigger] copied_post::<T, _, _>(input, result),
+    ensures
+        IteratorSpec::obeys_prophetic_iter_laws(&result),
+        // Copy does not invoke user code; only the source iterator may fail to complete.
+        IteratorSpec::remaining(&result) == input.remaining().unref(),
+        IteratorSpec::will_return_none(&result) == input.will_return_none(),
+        IteratorSpec::decrease(&result) is Some == input.decrease() is Some,
+;
 
 /********************************************************************************
  * Definitions for `cloned()`

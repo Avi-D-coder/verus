@@ -4,6 +4,95 @@ mod common;
 use common::*;
 
 test_verify_one_file! {
+    #[test] copied_preserves_values_and_completion verus_code! {
+        use vstd::prelude::*;
+        use vstd::std_specs::iter::IteratorSpec;
+
+        proof fn collect_law<T, I: Iterator<Item = T>, C: core::iter::FromIterator<T>>(
+            iter: I, result: C,
+        )
+            requires iter.obeys_prophetic_iter_laws(),
+                call_ensures(I::collect::<C>, (iter,), result),
+            ensures vstd::std_specs::iter::FromIteratorSpec::from_iter_ensures(iter.remaining(), result),
+        {}
+
+        fn next_item<T, I: Iterator<Item = T>>(iter: &mut I) -> (result: Option<T>)
+            requires (*old(iter)).obeys_prophetic_iter_laws(), (*old(iter)).remaining().len() > 0,
+            ensures result == Some((*old(iter)).remaining()[0]),
+                (*final(iter)).obeys_prophetic_iter_laws(),
+                (*final(iter)).remaining() == (*old(iter)).remaining().drop_first(),
+        { iter.next() }
+
+        fn test() {
+            let values = vec![7u64, 9u64];
+            let source = values.iter();
+            let mut copies = source.copied();
+            proof { vstd::std_specs::iter::copied_postcondition(source, copies); }
+            assert(copies.will_return_none() == source.will_return_none());
+            assert(copies.decrease() is Some);
+            let first = next_item(&mut copies);
+            assert(first == Some(7u64));
+            let rest: Vec<u64> = copies.collect();
+            proof { collect_law(copies, rest); }
+            assert(rest@ == seq![9u64]);
+
+            let empty: Vec<u64> = vec![];
+            let source = empty.iter();
+            let mut copies = source.copied();
+            proof { vstd::std_specs::iter::copied_postcondition(source, copies); }
+            let output: Vec<u64> = copies.collect();
+            proof { collect_law(copies, output); }
+            assert(output@.len() == 0);
+        }
+
+        #[derive(Copy)]
+        struct Value { number: u64 }
+
+        impl Clone for Value {
+            fn clone(&self) -> Self { Self { number: 0 } }
+        }
+
+        fn copy_does_not_call_clone() {
+            let values = vec![Value { number: 7 }];
+            let source = values.iter();
+            let mut copies = source.copied();
+            proof { vstd::std_specs::iter::copied_postcondition(source, copies); }
+            let value = next_item(&mut copies).unwrap();
+            assert(value.number == 7);
+        }
+
+        proof fn partial_source<'a, T: Copy + 'a, I: Iterator<Item = &'a T>>(
+            source: I, copies: core::iter::Copied<I>,
+        )
+            where core::iter::Copied<I>: Iterator<Item = T>,
+            requires source.obeys_prophetic_iter_laws(), !source.will_return_none(),
+                vstd::std_specs::iter::copied_post::<T, _, _>(source, copies),
+            ensures !copies.will_return_none(),
+        { vstd::std_specs::iter::copied_postcondition(source, copies); }
+    } => Ok(())
+}
+
+test_verify_one_file! {
+    #[test] copied_cannot_change_value verus_code! {
+        use vstd::prelude::*;
+        use vstd::std_specs::iter::IteratorSpec;
+        fn next_item<I: Iterator<Item = u64>>(iter: &mut I) -> (result: Option<u64>)
+            requires (*old(iter)).obeys_prophetic_iter_laws(), (*old(iter)).remaining().len() > 0,
+            ensures result == Some((*old(iter)).remaining()[0]),
+        { iter.next() }
+        fn test() {
+            let values = vec![7u64];
+            let source = values.iter();
+            let mut copies = source.copied();
+            proof { vstd::std_specs::iter::copied_postcondition(source, copies); }
+            let first = next_item(&mut copies);
+            assert(first == Some(7u64));
+            assert(first == Some(8u64)); // FAILS
+        }
+    } => Err(err) => assert_one_fails(err)
+}
+
+test_verify_one_file! {
     #[test] cloned_preserves_yielded_values verus_code! {
         use vstd::prelude::*;
         use vstd::std_specs::iter::IteratorSpec;
