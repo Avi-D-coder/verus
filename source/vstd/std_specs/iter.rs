@@ -2,7 +2,7 @@ use super::super::prelude::*;
 use super::super::seq::{
     group_seq_lemmas, lemma_seq_empty, lemma_seq_subrange_index, lemma_seq_subrange_len,
 };
-use core::iter::{Chain, Filter, FromIterator, Iterator, Rev, Skip, Take, Zip};
+use core::iter::{Chain, Enumerate, Filter, FromIterator, Iterator, Rev, Skip, Take, Zip};
 use verus as verus_;
 
 verus_! {
@@ -66,6 +66,13 @@ pub trait ExIterator {
     spec fn peek(&self, index: int) -> Option<Self::Item>;
 
     // Provided methods
+
+    fn enumerate(self) -> (r: Enumerate<Self>)
+        where Self: Sized,
+        ensures
+            self.obeys_prophetic_iter_laws() && self.remaining().len() <= usize::MAX ==>
+                enumerate_post(self, r),
+    ;
 
     #[verifier::impls_cannot_extend_spec]
     fn chain<U>(self, other: U) -> (r: Chain<Self, U::IntoIter>)
@@ -393,6 +400,42 @@ impl<A: Iterator, B: Iterator<Item = A::Item>> IteratorSpecImpl for Chain<A, B> 
     uninterp spec fn will_return_none(&self) -> bool;
     uninterp spec fn decrease(&self) -> Option<nat>;
     open spec fn peek(&self, index: int) -> Option<A::Item> { None }
+}
+
+/********************************************************************************
+ * Definitions for `enumerate()`
+ ********************************************************************************/
+
+#[verifier::external_body]
+#[verifier::external_type_specification]
+#[verifier::reject_recursive_types(I)]
+pub struct ExEnumerate<I>(Enumerate<I>);
+
+// Constructor relation avoids a cyclic Iterator/IteratorSpec bound.
+pub uninterp spec fn enumerate_post<I>(input: I, result: Enumerate<I>) -> bool;
+
+pub broadcast axiom fn enumerate_postcondition<I: IteratorSpec>(input: I, result: Enumerate<I>)
+    requires
+        input.obeys_prophetic_iter_laws(),
+        // next increments the counter after yielding, so even the final increment must fit.
+        input.remaining().len() <= usize::MAX,
+        #[trigger] enumerate_post(input, result),
+    ensures
+        IteratorSpec::obeys_prophetic_iter_laws(&result),
+        IteratorSpec::remaining(&result) == Seq::new(input.remaining().len(),
+            |i: int| (i as usize, input.remaining()[i])),
+        IteratorSpec::will_return_none(&result) == input.will_return_none(),
+        IteratorSpec::decrease(&result) is Some == input.decrease() is Some,
+;
+
+impl<I: Iterator> IteratorSpecImpl for Enumerate<I> {
+    uninterp spec fn obeys_prophetic_iter_laws(&self) -> bool;
+    #[verifier::prophetic]
+    uninterp spec fn remaining(&self) -> Seq<(usize, I::Item)>;
+    #[verifier::prophetic]
+    uninterp spec fn will_return_none(&self) -> bool;
+    uninterp spec fn decrease(&self) -> Option<nat>;
+    open spec fn peek(&self, index: int) -> Option<(usize, I::Item)> { None }
 }
 
 /********************************************************************************
@@ -998,6 +1041,7 @@ pub trait ExIterStep: Clone + PartialOrd + Sized {
  ********************************************************************************/
 
 pub broadcast group group_iter_axioms {
+    enumerate_postcondition,
     chain_postcondition,
     rev_postcondition,
     zip_postcondition,

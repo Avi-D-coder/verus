@@ -4,6 +4,25 @@ mod common;
 use common::*;
 
 test_verify_one_file! {
+    #[test] enumerate_indices_survive_next verus_code! {
+        use vstd::prelude::*;
+
+        fn test() {
+            let values = vec![9u64, 4];
+            let mut iter = values.into_iter().enumerate();
+            let first = iter.next();
+            assert(first == Some((0usize, 9u64)));
+            let rest: Vec<(usize, u64)> = iter.collect();
+            assert(rest@ == seq![(1usize, 4u64)]);
+
+            let empty: Vec<u64> = vec![];
+            let output: Vec<(usize, u64)> = empty.into_iter().enumerate().collect();
+            assert(output@.len() == 0);
+        }
+    } => Ok(())
+}
+
+test_verify_one_file! {
     #[test] chain_order_and_exhaustion verus_code! {
         use vstd::prelude::*;
         use vstd::std_specs::iter::IteratorSpec;
