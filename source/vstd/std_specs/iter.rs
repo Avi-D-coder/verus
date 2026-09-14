@@ -2,7 +2,7 @@ use super::super::prelude::*;
 use super::super::seq::{
     group_seq_lemmas, lemma_seq_empty, lemma_seq_subrange_index, lemma_seq_subrange_len,
 };
-use core::iter::{Chain, Cloned, Copied, Enumerate, Filter, FromIterator, Iterator, Rev, Skip, Take, Zip};
+use core::iter::{Chain, Cloned, Copied, Enumerate, Filter, FilterMap, FromIterator, Iterator, Rev, Skip, Take, Zip};
 use verus as verus_;
 
 verus_! {
@@ -262,6 +262,20 @@ pub trait ExIterator {
             forall |k| #![auto] 0 <= k < self.remaining().len() ==> call_requires(predicate, (&self.remaining()[k], )),
         ensures
             self.obeys_prophetic_iter_laws() ==> filter_post(self, predicate, r),
+    ;
+
+    fn filter_map<B, F>(self, f: F) -> (r: core::iter::FilterMap<Self, F>)
+        where
+            Self: Sized,
+            F: FnMut(Self::Item) -> Option<B>,
+        requires
+            self.obeys_prophetic_iter_laws(),
+            // `filter_map` loops over the inner iterator until the callback returns `Some`,
+            // so it needs a decreases metric to prove termination.
+            self.decrease() is Some,
+            forall |k| #![auto] 0 <= k < self.remaining().len() ==> call_requires(f, (self.remaining()[k], )),
+        ensures
+            self.obeys_prophetic_iter_laws() ==> filter_map_post::<Self, F, B>(self, f, r),
     ;
 
 }
@@ -688,6 +702,96 @@ impl <I, P> IteratorSpecImpl for core::iter::Filter<I, P>
 }
 
 /********************************************************************************
+ * Definitions for `filter_map()`
+ ********************************************************************************/
+
+#[verifier::external_body]
+#[verifier::external_type_specification]
+#[verifier::reject_recursive_types(I)]
+#[verifier::reject_recursive_types(F)]
+pub struct ExFilterMap<I, F>(FilterMap<I, F>);
+
+// Ghost accessor for the inner iterator.
+pub uninterp spec fn filter_map_iter<I, F>(r: FilterMap<I, F>) -> I;
+
+// Ghost accessor for the mapping function.
+pub uninterp spec fn filter_map_fun<I, F>(r: FilterMap<I, F>) -> F;
+
+// Ghost accessor for the sequence of callback results made for the (prefix of) the
+// inner iterator's elements.
+#[verifier::prophetic]
+pub uninterp spec fn filter_map_results<I, F, B>(r: FilterMap<I, F>) -> Seq<Option<B>>;
+
+// Ideally, we would write this postcondition directly on the definition of
+// Iterator::filter_map above. However, doing so would impose a trait bound of
+// `Self: IteratorSpec` and introduce a cyclic dependency.
+pub uninterp spec fn filter_map_post<I, F, B>(i: I, f: F, r: FilterMap<I, F>) -> bool;
+
+pub broadcast axiom fn filter_map_postcondition<I, F, B>(
+    i: I,
+    f: F,
+    r: core::iter::FilterMap<I, F>,
+)
+    where
+        I: IteratorSpec,
+        F: FnMut(I::Item) -> Option<B>,
+    requires
+        i.obeys_prophetic_iter_laws(),
+        i.decrease() is Some,
+        forall |k| #![auto] 0 <= k < i.remaining().len() ==> call_requires(f, (i.remaining()[k], )),
+        #[trigger] filter_map_post::<I, F, B>(i, f, r),
+    ensures
+        {
+            let results = filter_map_results(r);
+            {
+                // `results` records each callback result observed while searching for the
+                // next output. A divergent callback can therefore leave only a prefix.
+                &&& results.len() <= i.remaining().len()
+                &&& forall |j| 0 <= j < results.len() ==>
+                    call_ensures(f, (i.remaining()[j],), #[trigger] results[j])
+                // Every observed `Some` result is yielded in source order.
+                &&& IteratorSpec::remaining(&r) == results.filter_map(|result: Option<B>| result)
+                &&& IteratorSpec::remaining(&r).len() <= i.remaining().len()
+                &&& forall |k| #![trigger IteratorSpec::remaining(&r)[k]]
+                    0 <= k < IteratorSpec::remaining(&r).len() ==>
+                    exists |j| 0 <= j < results.len()
+                        && results[j] == Some(IteratorSpec::remaining(&r)[k])
+                // Completion means that every source callback was observed and the source
+                // itself completed. It does not follow merely from constructing the adapter.
+                &&& IteratorSpec::will_return_none(&r) ==>
+                    i.will_return_none() && results.len() == i.remaining().len()
+                &&& IteratorSpec::decrease(&r) is Some == i.decrease() is Some
+                &&& filter_map_iter(r) == i
+                &&& filter_map_fun(r) == f
+            }
+        },
+;
+
+impl <B, I, F> IteratorSpecImpl for core::iter::FilterMap<I, F>
+    where
+        I: Iterator + IteratorSpec,
+        F: FnMut(I::Item) -> Option<B>,
+{
+    open spec fn obeys_prophetic_iter_laws(&self) -> bool {
+        filter_map_iter(*self).obeys_prophetic_iter_laws()
+    }
+
+    #[verifier::prophetic]
+    uninterp spec fn remaining(&self) -> Seq<B>;
+
+    #[verifier::prophetic]
+    uninterp spec fn will_return_none(&self) -> bool;
+
+    uninterp spec fn decrease(&self) -> Option<nat>;
+
+    // `filter_map` cannot make a useful static guess about which element will be returned at
+    // a given index, since that depends on prophetic callback evaluations.
+    open spec fn peek(&self, index: int) -> Option<B> {
+        None
+    }
+}
+
+/********************************************************************************
  * Definitions for `take()`
  ********************************************************************************/
 #[verifier::external_body]
@@ -1104,12 +1208,14 @@ pub trait ExIterStep: Clone + PartialOrd + Sized {
  ********************************************************************************/
 
 pub broadcast group group_iter_axioms {
+    axiom_from_iterator_ensures,
     cloned_postcondition,
     enumerate_postcondition,
     chain_postcondition,
     rev_postcondition,
     zip_postcondition,
     filter_postcondition,
+    filter_map_postcondition,
     take_postcondition,
     skip_postcondition,
     map_postcondition,

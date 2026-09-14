@@ -463,6 +463,21 @@ test_verify_one_file! {
 }
 
 test_verify_one_file! {
+    #[test] test_btree_set_extend verus_code! {
+        extern crate alloc;
+        use alloc::collections::BTreeSet;
+        use vstd::prelude::*;
+        fn test() {
+            let mut set = BTreeSet::<u32>::new();
+            set.insert(1);
+            let input = vec![2u32, 3, 2].into_iter();
+            set.extend(input);
+            assert(set@ == set![1u32, 2, 3]);
+        }
+    } => Ok(())
+}
+
+test_verify_one_file! {
     #[test] test_btree_map_struct verus_code! {
         use std::collections::BTreeMap;
         use vstd::prelude::*;

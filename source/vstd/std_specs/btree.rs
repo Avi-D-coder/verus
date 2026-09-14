@@ -11,7 +11,7 @@
 use super::super::laws_cmp::obeys_cmp;
 use super::super::prelude::*;
 use super::cmp::OrdSpec;
-use super::iter::IteratorSpec;
+use super::iter::{into_iter_remaining, IteratorSpec};
 
 #[cfg(verus_keep_ghost)]
 use super::super::map::assert_maps_equal;
@@ -1132,6 +1132,26 @@ pub assume_specification<Key: Ord, A: Allocator + Clone>[ BTreeSet::<Key, A>::in
             &&& final(m)@ == old(m)@.insert(k)
             &&& result == !old(m)@.contains(k)
         },
+;
+
+/// Extending a set inserts every element produced by the input's `IntoIterator`.
+///
+/// The input sequence is expressed through `into_iter_remaining` so this
+/// contract remains valid for lazy or user-defined `IntoIterator` values. When
+/// the input itself is an iterator that implements `IteratorSpec`, the
+/// iterator axioms connect the sequence to its `remaining()` view.
+pub assume_specification<
+    Key: Ord,
+    A: Allocator + Clone,
+    I: IntoIterator<Item = Key>,
+>[ <BTreeSet<Key, A> as core::iter::Extend<Key>>::extend ](
+    m: &mut BTreeSet<Key, A>,
+    iter: I,
+)
+    ensures
+        obeys_cmp::<Key>() ==> final(m)@ == old(m)@.union(
+            into_iter_remaining::<Key, I>(iter).to_set(),
+        ),
 ;
 
 // The specification for `contains` has a parameter `key: &Q`

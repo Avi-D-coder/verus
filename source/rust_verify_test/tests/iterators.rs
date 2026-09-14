@@ -158,6 +158,47 @@ test_verify_one_file! {
 }
 
 test_verify_one_file! {
+    #[test] filter_map_preserves_selected_values verus_code! {
+        use vstd::prelude::*;
+        use vstd::std_specs::iter::IteratorSpec;
+
+        proof fn collect_law<T, I: Iterator<Item = T>, C: core::iter::FromIterator<T>>(
+            iter: I, result: C,
+        )
+            requires iter.obeys_prophetic_iter_laws(),
+                call_ensures(I::collect::<C>, (iter,), result),
+            ensures vstd::std_specs::iter::FromIteratorSpec::from_iter_ensures(iter.remaining(), result),
+        {}
+
+        fn test() {
+            let values = vec![1u64, 2, 3];
+            let source = values.iter();
+            let callback = |value: &u64| -> (result: Option<u64>)
+                ensures result == if *value == 2u64 { Some(20u64) } else { None }
+            {
+                if *value == 2u64 { Some(*value * 10u64) } else { None }
+            };
+            let stream = source.filter_map(callback);
+            let result: Vec<u64> = stream.collect();
+            proof {
+                assert(stream.will_return_none());
+                vstd::std_specs::iter::filter_map_postcondition(source, callback, stream);
+                collect_law(stream, result);
+                let ghost results: Seq<Option<u64>> = vstd::std_specs::iter::filter_map_results(stream);
+                assert(stream.remaining() == results.filter_map(|value: Option<u64>| value));
+                assert(result@ == stream.remaining());
+                assert forall |j: int| 0 <= j < results.len() implies
+                    results[j] == if *source.remaining()[j] == 2u64 { Some(20u64) } else { None } by {
+                    assert(vstd::prelude::call_ensures(callback, (source.remaining()[j],), results[j]));
+                }
+                reveal_with_fuel(Seq::filter_map, 4);
+            }
+            assert(result@ == seq![20u64]);
+        }
+    } => Ok(())
+}
+
+test_verify_one_file! {
     #[test] enumerate_indices_survive_next verus_code! {
         use vstd::prelude::*;
 
