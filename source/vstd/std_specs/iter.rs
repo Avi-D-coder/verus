@@ -365,6 +365,16 @@ pub assume_specification<I: Iterator>[ <I as IntoIterator>::into_iter ](i: I) ->
 // This avoids requiring IteratorSpec bounds in from_iter's ensures clause.
 pub uninterp spec fn into_iter_remaining<A, T>(iter: T) -> Seq<A>;
 
+// A consuming operation may record that the iterator returned by
+// `IntoIterator::into_iter` was driven to completion without requiring an
+// IteratorSpec bound on the consuming operation itself.
+pub uninterp spec fn into_iter_completed<A, T>(iter: T) -> bool;
+
+pub broadcast axiom fn axiom_into_iter_completed<A, I: Iterator<Item = A> + IteratorSpec>(iter: I)
+    requires #[trigger] into_iter_completed::<A, I>(iter),
+    ensures iter.will_return_none(),
+;
+
 // Connects into_iter_remaining to remaining() for types implementing Iterator + IteratorSpec.
 // This allows callers of from_iter to relate the result to the iterator's remaining elements.
 pub broadcast axiom fn axiom_from_iterator_ensures<A, I: Iterator<Item = A> + IteratorSpec>(iter: I)

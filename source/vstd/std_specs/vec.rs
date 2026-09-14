@@ -1,5 +1,5 @@
 use super::super::prelude::*;
-use super::iter::{FromIteratorSpecImpl, IteratorSpec, into_iter_remaining};
+use super::iter::{FromIteratorSpecImpl, IteratorSpec, into_iter_completed, into_iter_remaining};
 use verus_builtin::*;
 
 use super::super::slice::SliceIndexSpec;
@@ -161,12 +161,13 @@ pub assume_specification<T, A: Allocator>[ Vec::<T, A>::append ](
 ;
 
 /// Extending a vector appends every element produced by the input's
-/// `IntoIterator`, preserving the iterator's order.
+/// `IntoIterator`, preserving order and consuming that iterator to completion.
 pub assume_specification<T, A: Allocator, I: IntoIterator<Item = T>>[
     <Vec<T, A> as core::iter::Extend<T>>::extend
 ](vec: &mut Vec<T, A>, iter: I)
     ensures
         final(vec)@ == old(vec)@ + into_iter_remaining::<T, I>(iter),
+        into_iter_completed::<T, I>(iter),
 ;
 
 pub assume_specification<T: core::clone::Clone, A: Allocator>[ Vec::<T, A>::extend_from_slice ](
