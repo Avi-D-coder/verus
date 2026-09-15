@@ -724,7 +724,14 @@ pub(crate) fn collect_external_trait_impls<'tcx>(
             for assoc_item in tcx.associated_items(impl_def_id).in_definition_order() {
                 match assoc_item.kind {
                     rustc_middle::ty::AssocKind::Type { .. } => {
-                        let name = Arc::new(assoc_item.ident(tcx).to_string());
+                        // RPITIT lowering creates synthetic associated types without
+                        // identifiers.  They are not named associated types declared to
+                        // Verus, so there is nothing to import for them here.
+                        let Some(name) =
+                            assoc_item.opt_name().map(|name| Arc::new(name.to_string()))
+                        else {
+                            continue;
+                        };
                         if !trait_map[&trait_path].iter().any(|t| t.x.assoc_typs.contains(&name)) {
                             continue;
                         }

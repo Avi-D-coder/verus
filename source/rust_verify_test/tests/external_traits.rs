@@ -4,6 +4,38 @@ mod common;
 use common::*;
 
 test_verify_one_file! {
+    #[test] external_type_with_unused_rpitit code! {
+        trait Strategy {
+            fn spawn(&self) -> impl core::future::Future<Output = ()> + Send;
+        }
+
+        struct Sequential;
+
+        impl Strategy for Sequential {
+            fn spawn(&self) -> impl core::future::Future<Output = ()> + Send {
+                async {}
+            }
+        }
+
+        verus! {
+            #[verifier::external_trait_specification]
+            trait StrategySpec { type ExternalTraitSpecificationFor: Strategy; }
+
+            #[verifier::external_type_specification]
+            struct SequentialSpec(Sequential);
+
+            fn checked<S: Strategy>(_strategy: &S) -> (result: bool)
+                ensures result,
+            { true }
+
+            fn entry() -> (result: bool)
+                ensures result,
+            { checked(&Sequential) }
+        }
+    } => Ok(())
+}
+
+test_verify_one_file! {
     #[test] test_trait verus_code! {
         trait Tr {
             fn foo();
