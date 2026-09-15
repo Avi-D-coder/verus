@@ -2184,9 +2184,10 @@ pub(crate) fn expr_to_vir_innermost<'tcx>(
                 let block = block_to_vir(bctx, body, &expr.span, &expr_typ()?)?;
                 if crate::attributes::is_proof_in_spec(bctx.ctxt.tcx.hir_attrs(expr.hir_id)) {
                     mk_expr(ExprX::ProofInSpec(block))
-                } else if crate::attributes::is_loop_isolation_boundary(
-                    bctx.ctxt.tcx.hir_attrs(expr.hir_id),
-                ) {
+                } else if !bctx.external_body
+                    && crate::attributes::is_loop_isolation_boundary(
+                        bctx.ctxt.tcx.hir_attrs(expr.hir_id),
+                    ) {
                     let (wrap, label) = loop_isolation_boundary_check(expr.span, &block)?;
                     let block = if wrap {
                         let x = ExprX::UnaryOpr(UnaryOpr::LoopIsolationBoundary(label), block);

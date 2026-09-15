@@ -176,3 +176,25 @@ test_verify_one_file! {
         }
     } => Ok(())
 }
+
+// An external body has no VIR body to validate.  In particular, a for-loop's
+// generated loop-isolation wrapper must not be structurally inspected after
+// external-body lowering has discarded its setup statements.
+test_verify_one_file! {
+    #[test] external_body_for_loop code! {
+        use vstd::prelude::*;
+
+        #[verifier::external_body]
+        #[verifier::verify]
+        #[verus_spec(result => ensures true)]
+        fn test() {
+            let deleted = std::collections::BTreeSet::<u64>::new();
+            #[verus_spec(iteration => invariant true)]
+            for key in &deleted {
+                let _ = key;
+            }
+        }
+
+        fn main() {}
+    } => Ok(())
+}
